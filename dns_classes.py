@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 from typing import List
 
+ROOT_DNS_ADDR = "199.7.91.13" #UMD server, go terrapins
+
+
+
 
 @dataclass
 class DNSHeader:
@@ -33,3 +37,8 @@ class DNSPacket:
     authorities: List[DNSRecord]
     additionals: List[DNSRecord]
 
+@dataclass
+class dnsRecordCache:
+    response_bytes: bytes 
+    cached_at: int
+    ttl: int 

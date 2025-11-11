@@ -1,3 +1,15 @@
+################################################################################
+#
+# DNS Resolver Implementation
+# Author: Harry Minsky
+#
+# Code for parsing DNS queries in this section is heavily inspired by the
+# "DNS in a weekend" blog posts by Julia Evans
+# https://implement-dns.wizardzines.com/book/intro
+#
+################################################################################
+
+
 from dns_classes import *
 import dataclasses
 import struct
@@ -7,7 +19,6 @@ import socket
 
 
 
-ROOT_ADDR = "199.7.91.13" #UMD server, go terrapins
 
 random.seed(1)
 
@@ -66,16 +77,6 @@ def encode_dns_name(domain_name):
         encoded += bytes([len(part)]) + part
     return encoded + b"\x00"
 
-
-def build_dns_query(domain_name, record_type):
-    name = encode_dns_name(domain_name)
-    id = random.randint(0, 65535)
-    RECURSION_DESIRED = 1 << 8
-    header = DNSHeader(id=id, num_questions=1, flags=RECURSION_DESIRED)
-    question = DNSQuestion(name=name, type_=record_type, class_=1)
-    return header_to_bytes(header) + question_to_bytes(question)
-
-
 def parse_header(reader):
     items = struct.unpack("!HHHHHH", reader.read(12))
     return DNSHeader(*items)
@@ -90,6 +91,10 @@ def decode_name(reader):
             parts.append(reader.read(length))
     return b".".join(parts)
 
+def decode_mx(reader):
+    reader.read(2)
+    exchange = decode_name(reader)
+    return exchange  
 
 def decode_compressed_name(length, reader):
     pointer_bytes = bytes([length & 0b0011_1111]) + reader.read(1)
@@ -115,6 +120,8 @@ def parse_record(reader: BytesIO):
         data = decode_name(reader)
     elif type == 'A':
         data = ip_to_string(reader.read(data_len))
+    elif type == 'MX':
+        data = decode_mx(reader)
     else:
         data = reader.read(data_len)
     return DNSRecord(name, type_, class_, ttl, data) # type: ignore
@@ -129,19 +136,25 @@ def parse_dns_packet(data):
 
     return DNSPacket(header, questions, answers, authorities, additionals)
 
-def build_query(domain_name, record_type):
+def build_query(domain_name: str, record_type: int, query_id: int | None = None) -> bytes:
     name = encode_dns_name(domain_name)
-    id = random.randint(0, 65535)
-    header = DNSHeader(id=id, num_questions=1, flags=0)
+    if query_id is None:
+        query_id = random.randint(0, 65535)
+    header = DNSHeader(id=query_id, num_questions=1, flags=0)
     question = DNSQuestion(name=name, type_=record_type, class_=1)
     return header_to_bytes(header) + question_to_bytes(question)
 
 def get_nameserver(packet):
     for x in packet.authorities:
         if x.type_ == 2:
-            return x.data.decode('utf-8')
-        
+            return x.data.decode('utf-8').rstrip('\x00')
+
 def get_nameserver_ip(packet):
     for x in packet.additionals:
         if x.type_ == 1:
             return x.data
+
+def get_answer(packet):
+    if packet.answers:
+        return packet.answers[0].data
+    return None
